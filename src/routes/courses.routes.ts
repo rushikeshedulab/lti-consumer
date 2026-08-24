@@ -1,10 +1,22 @@
 import { Router } from 'express';
 import { query, queryOne } from '../db/pool.js';
 import { requireUser } from '../middleware/session.js';
+import { lastSyncResult, syncCatalog } from '../services/catalogSync.js';
 
 export const coursesRouter = Router();
 
 coursesRouter.use(requireUser);
+
+/**
+ * Every read mirrors the provider's catalog first, so content the provider's
+ * admin uploaded a moment ago is already here when the page renders. The sync
+ * is throttled and coalesced, and a failure is non-fatal: we then serve the
+ * last mirrored state.
+ */
+coursesRouter.use(async (_req, _res, next) => {
+  await syncCatalog().catch(() => undefined);
+  next();
+});
 
 /** Courses the signed-in user is enrolled in. Metadata only - no lecture content. */
 coursesRouter.get('/', async (req, res) => {
@@ -17,13 +29,18 @@ coursesRouter.get('/', async (req, res) => {
       ORDER BY c.title`,
     [req.user!.id],
   );
-  res.json({ courses: rows });
+  res.json({ courses: rows, sync: lastSyncResult() });
+});
+
+/** Force a fresh mirror of the provider catalog (the pages do this on load too). */
+coursesRouter.post('/sync', async (_req, res) => {
+  res.json({ sync: await syncCatalog({ force: true }) });
 });
 
 /**
  * Course detail: the modules/lectures shown here are RESOURCE LINKS, not
  * content. Each one holds an id, a title and the custom parameters the provider
- * gave us during Deep Linking - nothing else.
+ * published in its catalog - nothing else.
  */
 coursesRouter.get('/:courseId', async (req, res) => {
   const courseId = String(req.params.courseId);
@@ -57,7 +74,7 @@ coursesRouter.get('/:courseId', async (req, res) => {
     `SELECT id, title, description, module_label, custom_params, position, created_via
        FROM resource_links
       WHERE course_id = $1
-      ORDER BY module_label NULLS LAST, position, title`,
+      ORDER BY position, title`,
     [courseId],
   );
 
@@ -73,7 +90,7 @@ coursesRouter.get('/:courseId', async (req, res) => {
     group.links.push(link);
   }
 
-  res.json({ course, role: (enrolment as { role: string }).role, modules });
+  res.json({ course, role: (enrolment as { role: string }).role, modules, sync: lastSyncResult() });
 });
 
 /** This user's launch history, including any duration the provider reported back. */

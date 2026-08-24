@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api, formatDuration, formatTime } from '../lib/api';
-import { useAuth } from '../lib/auth';
 
 interface ResourceLink {
   id: string;
@@ -15,10 +14,18 @@ interface CourseModule {
   label: string;
   links: ResourceLink[];
 }
+interface SyncState {
+  ok: boolean;
+  courses: number;
+  links: number;
+  syncedAt: string | null;
+  error?: string;
+}
 interface CourseResponse {
   course: { id: string; title: string; description: string; content_source: string };
   role: string;
   modules: CourseModule[];
+  sync: SyncState;
 }
 interface LaunchRow {
   id: string;
@@ -34,10 +41,10 @@ interface LaunchRow {
 
 export default function CourseDetail() {
   const { courseId } = useParams();
-  const { user } = useAuth();
   const [data, setData] = useState<CourseResponse | null>(null);
   const [launches, setLaunches] = useState<LaunchRow[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(() => {
     if (!courseId) return;
@@ -49,14 +56,17 @@ export default function CourseDetail() {
 
   useEffect(load, [load]);
 
-  // Deep Linking runs in a popup and tells us when it is done.
-  useEffect(() => {
-    const onMessage = (event: MessageEvent) => {
-      if (event.data?.type === 'lti.deepLinkingComplete') load();
-    };
-    window.addEventListener('message', onMessage);
-    return () => window.removeEventListener('message', onMessage);
-  }, [load]);
+  // The lecture list is a mirror of the provider's catalog; this asks for a
+  // fresh copy instead of waiting for the next background sync.
+  const refresh = async () => {
+    setRefreshing(true);
+    try {
+      await api('/api/courses/sync', { method: 'POST' });
+      load();
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   if (error) {
     return (
@@ -76,43 +86,32 @@ export default function CourseDetail() {
     );
   }
 
-  const openDeepLinking = () => {
-    window.open(
-      `/lti/deep-link/initiate?courseId=${encodeURIComponent(courseId!)}`,
-      'lti-deep-linking',
-      'width=900,height=760',
-    );
-  };
-
-  const seeded = data.modules.some((m) => m.links.some((l) => l.created_via === 'seed'));
-
   return (
     <div className="page">
       <Link to="/courses" className="muted small">
         &larr; My courses
       </Link>
-      <h1 style={{ marginTop: 10 }}>{data.course.title}</h1>
-      <p className="subtitle">{data.course.description}</p>
-
-      {user?.role === 'instructor' && (
-        <div className="card row">
-          <div>
-            <strong>Instructor tools</strong>
-            <div className="muted small">
-              Fetch the lecture list from the provider with an LTI Deep Linking request.
-            </div>
-          </div>
-          <button style={{ marginLeft: 'auto' }} onClick={openDeepLinking}>
-            Add content from provider
-          </button>
+      <div className="row" style={{ marginTop: 10 }}>
+        <div>
+          <h1>{data.course.title}</h1>
+          <p className="subtitle" style={{ marginBottom: 0 }}>
+            {data.course.description}
+          </p>
         </div>
-      )}
+        <button className="secondary small" style={{ marginLeft: 'auto' }} onClick={refresh} disabled={refreshing}>
+          {refreshing ? 'Checking…' : 'Check for new content'}
+        </button>
+      </div>
 
-      {seeded && (
+      <p className="muted small" style={{ margin: '12px 0 18px' }}>
+        This list mirrors what the provider&rsquo;s administrator has published. Nothing is selected here.
+        {data.sync?.syncedAt && <> Last checked {formatTime(data.sync.syncedAt)}.</>}
+      </p>
+
+      {data.sync && !data.sync.ok && (
         <div className="notice warn" style={{ marginBottom: 16 }}>
-          Some links below were seeded so the demo runs immediately. Sign in as{' '}
-          <span className="mono">instructor@example.com</span> and use <strong>Add content from provider</strong> to
-          recreate them through a real LTI Deep Linking round trip.
+          Could not reach the content provider just now, so this list may be out of date.
+          {data.sync.error && <span className="muted small"> ({data.sync.error})</span>}
         </div>
       )}
 
@@ -134,8 +133,10 @@ export default function CourseDetail() {
                   </>
                 )}
                 <br />
-                <span className="badge">provider lecture: {link.custom_params.lecture_id ?? '-'}</span>{' '}
-                <span className="badge">{link.created_via === 'seed' ? 'seeded link' : 'via deep linking'}</span>
+                <span className="badge">provider item: {link.custom_params.lecture_id ?? '-'}</span>{' '}
+                <span className="badge">
+                  {link.created_via === 'deep_linking' ? 'via deep linking' : 'published by provider'}
+                </span>
               </div>
               <Link className="btn" to={`/courses/${data.course.id}/launch/${link.id}`}>
                 Launch lecture
@@ -148,7 +149,8 @@ export default function CourseDetail() {
 
       {data.modules.length === 0 && (
         <div className="card empty">
-          No content linked to this course yet. An instructor must add it from the provider via Deep Linking.
+          The provider has not published anything in this course yet. It appears here as soon as the provider&rsquo;s
+          administrator uploads it.
         </div>
       )}
 

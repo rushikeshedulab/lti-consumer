@@ -339,8 +339,8 @@ ltiRouter.post('/deep-link/return', async (req, res) => {
 
   res.type('html').send(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>Content added</title>
-<style>body{font:14px/1.6 ui-sans-serif,system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;background:#f5f6f8;color:#16191f}
-@media (prefers-color-scheme:dark){body{background:#0f1115;color:#e7e9ec}}</style></head>
+<style>:root{color-scheme:light}
+body{font:14px/1.6 ui-sans-serif,system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;background:#f5f6f8;color:#16191f}</style></head>
 <body><div style="text-align:center">
   <p><strong>${stored} lecture link${stored === 1 ? '' : 's'} added.</strong></p>
   <p>Returning to the course…</p>

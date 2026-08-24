@@ -30,6 +30,13 @@ export const env = {
   sessionSecret: required('SESSION_SECRET', 'change-me-consumer-session-secret'),
   demoPassword: required('DEMO_PASSWORD', 'demo1234'),
 
+  /**
+   * Catalog mirroring. The URL is normally derived from the registered tool's
+   * own endpoints; set TOOL_CATALOG_URL only if the tool serves it elsewhere.
+   */
+  toolCatalogUrl: process.env.TOOL_CATALOG_URL ?? '',
+  catalogSyncIntervalSeconds: num('CATALOG_SYNC_INTERVAL_SECONDS', 60),
+
   idTokenTtlSeconds: num('ID_TOKEN_TTL_SECONDS', 300),
   accessTokenTtlSeconds: num('ACCESS_TOKEN_TTL_SECONDS', 3600),
 

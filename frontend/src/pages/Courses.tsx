@@ -25,8 +25,8 @@ export default function Courses() {
     <div className="page">
       <h1>My courses</h1>
       <p className="subtitle">
-        The LMS holds enrolment and course metadata. Every lecture you open is served live by the content provider
-        over LTI 1.3.
+        These courses are published by the content provider and mirrored here automatically. The LMS holds enrolment
+        and metadata only - every item you open is served live by the provider over LTI 1.3.
       </p>
 
       {loading && <div className="card empty">Loading…</div>}
@@ -40,7 +40,7 @@ export default function Courses() {
             <dl className="kv" style={{ margin: '14px 0' }}>
               <dt>Content source</dt>
               <dd>{course.content_source}</dd>
-              <dt>Lectures linked</dt>
+              <dt>Items published</dt>
               <dd>{course.link_count}</dd>
             </dl>
             <Link className="btn" to={`/courses/${course.id}`}>
@@ -50,7 +50,12 @@ export default function Courses() {
         ))}
       </div>
 
-      {!loading && courses.length === 0 && <div className="card empty">You are not enrolled in any courses.</div>}
+      {!loading && courses.length === 0 && (
+        <div className="card empty">
+          No courses yet. They appear here on their own once the content provider&rsquo;s administrator uploads
+          content at the provider&rsquo;s admin panel.
+        </div>
+      )}
     </div>
   );
 }

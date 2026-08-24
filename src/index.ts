@@ -10,6 +10,7 @@ import { coursesRouter } from './routes/courses.routes.js';
 import { ltiRouter } from './routes/lti.routes.js';
 import { tokenRouter } from './routes/token.routes.js';
 import { servicesRouter } from './routes/services.routes.js';
+import { startCatalogSync } from './services/catalogSync.js';
 
 const app = express();
 app.set('trust proxy', true);
@@ -71,4 +72,7 @@ app.listen(env.port, () => {
   console.log(`  JWKS                    ${platformEndpoints.jwksUrl}`);
   console.log(`  deep link return URL    ${platformEndpoints.deepLinkReturnUrl}`);
   console.log('');
+  // Mirror the provider catalog now and keep it fresh in the background, so
+  // content uploaded on the provider side appears here on its own.
+  startCatalogSync();
 });

@@ -15,13 +15,23 @@ CREATE TABLE IF NOT EXISTS users (
 
 -- Course METADATA only: enough to render a catalogue. No videos, no lecture
 -- bodies, no provider content of any kind.
+--
+-- provider_course_id is set on every course this platform mirrored from a
+-- tool's catalog. It marks the row as provider-managed: the sync creates it,
+-- keeps its title in step, and removes it when the provider's admin deletes
+-- the course. Rows with NULL are local and are never touched by the sync.
 CREATE TABLE IF NOT EXISTS courses (
   id            TEXT PRIMARY KEY,
   title         TEXT NOT NULL,
   description   TEXT NOT NULL DEFAULT '',
   content_source TEXT NOT NULL DEFAULT 'EduLab Content Provider (LTI 1.3)',
+  provider_course_id TEXT,
+  synced_at     TIMESTAMPTZ,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE courses ADD COLUMN IF NOT EXISTS provider_course_id TEXT;
+ALTER TABLE courses ADD COLUMN IF NOT EXISTS synced_at TIMESTAMPTZ;
 
 CREATE TABLE IF NOT EXISTS enrollments (
   id          SERIAL PRIMARY KEY,
@@ -52,7 +62,10 @@ CREATE TABLE IF NOT EXISTS lti_tools (
 -- RESOURCE LINKS
 -- The ONLY thing the consumer knows about provider content: an id, a title and
 -- the custom parameters the provider asked us to send back on each launch.
--- Rows are created by LTI Deep Linking, not by copying the provider's database.
+-- Rows are mirrored from the tool's catalog service (created_via
+-- 'provider_sync'), so whatever the provider's admin uploads shows up here
+-- without anyone on this side choosing it. Deep Linking writes the same shape.
+-- Either way, no content ever lands in this database.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS resource_links (
   id               TEXT PRIMARY KEY,
@@ -63,7 +76,7 @@ CREATE TABLE IF NOT EXISTS resource_links (
   module_label     TEXT,
   custom_params    JSONB NOT NULL DEFAULT '{}'::jsonb,
   position         INTEGER NOT NULL DEFAULT 0,
-  created_via      TEXT NOT NULL DEFAULT 'deep_linking',  -- 'deep_linking' | 'seed'
+  created_via      TEXT NOT NULL DEFAULT 'provider_sync', -- 'provider_sync' | 'deep_linking'
   created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS resource_links_course_idx ON resource_links(course_id);

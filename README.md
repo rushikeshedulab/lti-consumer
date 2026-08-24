@@ -2,6 +2,8 @@
 
 A small LMS: students, courses, enrolments, and a lecture list. It holds **no lecture content** — every lecture is opened by signing an LTI 1.3 `id_token` and handing the browser to the content provider.
 
+The course list is **mirrored from the provider automatically**. Whatever the provider's administrator uploads appears here on its own; nobody on this side selects it.
+
 Runs on <http://localhost:4001>.
 
 ---
@@ -9,6 +11,7 @@ Runs on <http://localhost:4001>.
 ## Table of contents
 
 1. [Architecture](#1-architecture)
+1a. [Where the course list comes from](#1a-where-the-course-list-comes-from)
 2. [The LTI 1.3 flow](#2-the-lti-13-flow)
 3. [Provider setup](#3-provider-setup)
 4. [Consumer setup](#4-consumer-setup)
@@ -54,23 +57,37 @@ src/
 ├── middleware/     demo session cookie handling
 ├── routes/         auth, courses, lti (initiate/authorize/deep-link),
 │                   token endpoint, service endpoints
+├── services/       catalogSync.ts - mirrors the provider's catalog
 └── utils/          the self-submitting form that carries LTI messages
 
 frontend/           React (Vite) — login, courses, course detail, iframe host
-db/                 schema.sql + seed.sql
+db/                 schema.sql + accounts.sql (sign-in accounts only)
 ```
 
 ### Database tables
 
 | Table | Purpose |
 |---|---|
-| `users` | Demo students and one instructor |
-| `courses` | Course **metadata only** — title, description, content source |
-| `enrollments` | Who can open what |
+| `users` | The sign-in list — the only data this project installs |
+| `courses` | Course **metadata only** — title, description, content source. Mirrored from the provider (`provider_course_id`) |
+| `enrollments` | Who can open what. Created by the mirror |
 | `lti_tools` | Registered tools: client_id, deployment_id, endpoints, JWKS URL |
-| `resource_links` | Links to provider content: id, title, module label, custom params |
+| `resource_links` | Links to provider content: id, title, module label, custom params. Mirrored from the provider (`created_via='provider_sync'`) |
 | `launch_sessions` | One row per launch, plus any duration the provider reports back |
 | `login_hints` | One-time, short-lived handles that carry identity across the OIDC hop |
+
+---
+
+## 1a. Where the course list comes from
+
+`src/services/catalogSync.ts` mirrors the tool's catalog: it calls the provider's `GET /api/catalog` and makes this database match the answer — creating courses, creating a `resource_links` row per published item, enrolling every user, and **deleting** whatever the provider has withdrawn.
+
+- **What crosses the wire is metadata only**: item ids, titles, module structure, content type and duration. No content URLs, no bytes. Opening anything still costs a full LTI 1.3 launch, so this changes what is *offered*, never what is *delivered*.
+- **Authentication** is the mirror image of the tool's `private_key_jwt` client assertion: this platform signs a two-minute JWT with its own private key, addressed to that exact catalog URL, and the tool verifies it against our published JWKS. No shared secret.
+- **When it runs**: on startup, every `CATALOG_SYNC_INTERVAL_SECONDS` in the background, and on every course page load (throttled and coalesced, so a burst of page loads makes one request). **Check for new content** on the course page forces one.
+- **If the provider is down** the sync fails quietly, the last mirrored list keeps being served, and the course page says so.
+
+Enrolment follows the catalog: with nobody curating a course here, there is nobody to build a roster either, so every user in `users` is enrolled in every provider course, keeping their LMS role (`instructor` → `Instructor`, everyone else → `Learner`).
 
 ---
 
@@ -127,11 +144,13 @@ Validates, and refuses with an explained error page otherwise:
 }
 ```
 
-The **`custom`** claim is the hinge of the whole design: it carries the *provider's own* lecture id, obtained from the provider during Deep Linking. It is how the provider resolves exactly which lecture to serve while this database holds none of the content.
+The **`custom`** claim is the hinge of the whole design: it carries the *provider's own* lecture id, taken from the provider's catalog. It is how the provider resolves exactly which lecture to serve while this database holds none of the content.
 
 The token is then form-POSTed to the tool's `redirect_uri` together with the unchanged `state`.
 
 ### Step 4 — Deep Linking (`/lti/deep-link/initiate` and `/lti/deep-link/return`)
+
+Deep Linking is still implemented and still spec-complete, but it is **no longer how content gets here** — the catalog mirror does that. It stays in place because it is part of LTI Advantage and is worth being able to demonstrate; the automatic mirror is authoritative, so links it wrote are reconciled against the catalog on the next sync.
 
 An instructor triggers an `LtiDeepLinkingRequest`. The request carries `deep_linking_settings` including our `deep_link_return_url`, `accept_types: ["ltiResourceLink"]` and an opaque `data` value (the launch session id).
 
@@ -162,20 +181,22 @@ cd lti-consumer-lms
 cp .env.example .env
 npm install
 npm run frontend:install
-npm run setup            # keys:generate + db:migrate + db:seed
+npm run setup            # keys:generate + db:migrate + db:accounts
 npm run frontend:build
 npm run dev
 ```
 
-**Demo accounts** (shared password `demo1234`):
+`npm run db:accounts` installs two things and nothing else: the sign-in list from `db/accounts.sql`, and the tool registration. **No courses, no enrolments and no lecture links** — those are mirrored from the provider, so a fresh install shows an empty course list until the provider's admin uploads something.
+
+**Sign-in accounts** (shared password `demo1234`) — edit `db/accounts.sql` to use your own people, then re-run `npm run db:accounts`:
 
 | Email | Role |
 |---|---|
 | `angad@example.com` | student |
 | `priya@example.com` | student |
-| `instructor@example.com` | instructor — can run Deep Linking |
+| `instructor@example.com` | instructor |
 
-`npm run db:seed` also creates six `resource_links` marked `created_via='seed'`, purely so the scripted demo runs without an admin step first. Running Deep Linking replaces them with rows the provider itself supplied (`created_via='deep_linking'`), which is the real mechanism.
+Coming from an older checkout with seeded courses and links in the database? `npm run db:reset-content` drops every course, enrolment and lecture link (users and the tool registration survive); the real ones come straight back on the next sync.
 
 ---
 
@@ -197,7 +218,9 @@ npm run dev
 | `TOOL_REDIRECT_URIS` | `http://localhost:4000/lti/launch` | Comma-separated allow-list |
 | `TOOL_JWKS_URL` | `http://localhost:4000/.well-known/jwks.json` | Tool public keys |
 | `SESSION_SECRET` | *(change me)* | Signs the demo session cookie |
-| `DEMO_PASSWORD` | `demo1234` | Shared password for the seeded users |
+| `DEMO_PASSWORD` | `demo1234` | Shared password for the accounts in `db/accounts.sql` |
+| `CATALOG_SYNC_INTERVAL_SECONDS` | `60` | Background catalog refresh interval |
+| `TOOL_CATALOG_URL` | *(derived)* | Override only if the tool serves its catalog somewhere other than `<tool origin>/api/catalog` |
 | `ID_TOKEN_TTL_SECONDS` | `300` | `id_token` lifetime |
 | `ACCESS_TOKEN_TTL_SECONDS` | `3600` | Access token lifetime |
 
@@ -278,13 +301,13 @@ node scripts/verify-lti-flow.mjs
 
 Manually:
 
-1. Sign in at <http://localhost:4001> as `angad@example.com` / `demo1234`.
-2. **My courses → Introduction to Financial Markets → Launch lecture**.
+0. Publish something first: <http://localhost:4000/admin> → **Content** → create a course, add a module, upload a file.
+1. Sign in at <http://localhost:4001> as `angad@example.com` / `demo1234`. The course is already there.
+2. **My courses → your course → Launch lecture**.
 3. The page shows the three-hop flow above the frame; the provider's player renders inside it.
 4. **Close lecture**, then check <http://localhost:4000/admin> for the logged events.
 5. Reload the course page — **Your launch history** shows the launch, its status, and the watch time the provider reported back over the authorised service call.
-
-Deep Linking: sign in as `instructor@example.com`, open the course, click **Add content from provider**, select lectures, and watch the resource links change from `seeded link` to `via deep linking`.
+6. Delete the item in the provider's admin panel and reload: it is gone from here too.
 
 Negative tests worth showing:
 
@@ -313,8 +336,8 @@ Both are visible per course under **Your launch history**.
 
 ## What this database deliberately does not contain
 
-- No video URLs.
-- No lecture descriptions authored by the provider beyond the title text returned by Deep Linking.
-- No copy of the provider's `courses` / `modules` / `lectures` tables.
+- No video URLs, and no file of any kind.
+- No copy of the provider's `lectures` rows: the catalog mirror deliberately carries no `content_url`.
+- Nothing that would let this side serve content if the provider vanished.
 
-`resource_links` holds only an id, a display title, a module label, and the `custom` parameters the provider asked us to send back on every launch. Delete the provider and this LMS has nothing to show — which is the point being demonstrated.
+`resource_links` holds only an id, a display title, a module label, and the `custom` parameters the provider asked us to send back on every launch. The mirrored `courses` rows hold a title and a description, which is what a course list needs to render and no more. Delete the provider and this LMS has nothing to show — which is the point being demonstrated.

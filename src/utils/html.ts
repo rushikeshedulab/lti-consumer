@@ -34,7 +34,7 @@ export function autoPostForm(
   res.type('html').send(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>${escapeHtml(label)}</title>
 <style>
-  :root { color-scheme: light dark; }
+  :root { color-scheme: light; }
   body { margin:0; min-height:100vh; display:grid; place-items:center;
          font:14px/1.6 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
          background:#f5f6f8; color:#656d78; }
@@ -42,8 +42,6 @@ export function autoPostForm(
   .spinner { width:26px; height:26px; margin:0 auto 12px; border-radius:50%;
              border:2.5px solid #d7dbe0; border-top-color:#2b5bd7; animation:spin .8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  @media (prefers-color-scheme: dark) { body { background:#0f1115; color:#9aa1ac; }
-    .spinner { border-color:#2a2e36; border-top-color:#7ba2ff; } }
 </style></head>
 <body>
   <div class="box">
@@ -64,14 +62,12 @@ export function renderErrorPage(res: Response, status: number, title: string, me
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title>
 <style>
-  :root { color-scheme: light dark; }
+  :root { color-scheme: light; }
   body { margin:0; min-height:100vh; display:grid; place-items:center; padding:24px;
          font:15px/1.6 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
          background:#f5f6f8; color:#16191f; }
   .card { max-width:540px; background:#fff; border:1px solid #e2e5ea; border-radius:12px; padding:26px 30px; }
   h1 { margin:0 0 10px; font-size:19px; } p { margin:0; color:#656d78; }
-  @media (prefers-color-scheme: dark) { body { background:#0f1115; color:#e7e9ec; }
-    .card { background:#171a1f; border-color:#2a2e36; } p { color:#9aa1ac; } }
 </style></head>
 <body><div class="card"><h1>${escapeHtml(title)}</h1><p>${escapeHtml(message)}</p></div></body></html>`);
 }
