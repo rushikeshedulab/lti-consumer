@@ -33,3 +33,45 @@ export const platformRegistrationDocument = {
   deep_link_return_url: platformEndpoints.deepLinkReturnUrl,
   key_id: env.keyId,
 };
+
+/**
+ * OPENID CONNECT DISCOVERY / LTI PLATFORM CONFIGURATION
+ * ----------------------------------------------------
+ * The document a tool reads to configure itself. A platform that publishes
+ * nothing forces every tool to guess its endpoint paths from whatever layout it
+ * has seen before - and because this project serves index.html for any unknown
+ * GET path, a wrong guess answers HTTP 200 and looks alive right up until the
+ * launch fails.
+ *
+ * Built from platformEndpoints, which is also what the routes are mounted from,
+ * so the document cannot describe an endpoint this server does not serve.
+ */
+export const openIdConfigurationDocument = {
+  issuer: env.issuer,
+  authorization_endpoint: platformEndpoints.authorizationEndpoint,
+  token_endpoint: platformEndpoints.tokenEndpoint,
+  jwks_uri: platformEndpoints.jwksUrl,
+
+  response_types_supported: ['id_token'],
+  response_modes_supported: ['form_post'],
+  subject_types_supported: ['public'],
+  grant_types_supported: ['implicit', 'client_credentials'],
+  id_token_signing_alg_values_supported: ['RS256'],
+  token_endpoint_auth_methods_supported: ['private_key_jwt'],
+  token_endpoint_auth_signing_alg_values_supported: ['RS256'],
+  claims_supported: ['sub', 'iss', 'aud', 'name', 'email'],
+
+  'https://purl.imsglobal.org/spec/lti-platform-configuration': {
+    product_family_code: 'edulab-consumer-lms',
+    version: '1.0',
+    messages_supported: [
+      { type: 'LtiResourceLinkRequest' },
+      { type: 'LtiDeepLinkingRequest' },
+    ],
+    variables: [],
+  },
+
+  platform_name: platformRegistrationDocument.platform_name,
+  deep_link_return_url: platformEndpoints.deepLinkReturnUrl,
+  key_id: env.keyId,
+};

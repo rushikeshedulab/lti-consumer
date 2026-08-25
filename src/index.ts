@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import { env, platformEndpoints } from './config/env.js';
+import { openIdConfigurationDocument } from './config/registration.js';
 import { getPublicJwks } from './lti/keys.js';
 import { loadUser } from './middleware/session.js';
 import { authRouter } from './routes/auth.routes.js';
@@ -33,22 +34,48 @@ app.get('/.well-known/jwks.json', async (_req, res) => {
   res.set('cache-control', 'public, max-age=300').json(await getPublicJwks());
 });
 
+/**
+ * Discovery. Both paths return the same document - OpenID Connect Discovery and
+ * LTI Dynamic Registration are specified to look in different places for it.
+ * This is what lets a tool configure itself from one pasted address instead of
+ * four, and what stops it guessing paths when it finds nothing.
+ */
+for (const path of ['/.well-known/openid-configuration', '/.well-known/lti-platform-configuration']) {
+  app.get(path, (_req, res) => {
+    res.set('cache-control', 'public, max-age=300').json(openIdConfigurationDocument);
+  });
+}
+
 app.use('/api/auth', authRouter);
 app.use('/api/courses', coursesRouter);
 app.use('/lti', ltiRouter);
 app.use('/lti', tokenRouter);
 app.use('/lti', servicesRouter);
 
+/**
+ * Which requests the single-page app may answer.
+ *
+ * `/.well-known` is excluded deliberately. Serving index.html there returns
+ * HTTP 200 text/html for a document that does not exist, which is
+ * indistinguishable from a real one to anything that does not check the
+ * content type - the exact reason a tool could not tell a wrong endpoint from a
+ * working one. A 404 is the honest answer.
+ */
+function isFrontendPath(method: string, path: string): boolean {
+  if (method !== 'GET') return false;
+  return !['/api', '/lti', '/.well-known'].some((prefix) => path.startsWith(prefix));
+}
+
 const publicDir = resolve(process.cwd(), 'public');
 if (existsSync(publicDir)) {
   app.use(express.static(publicDir, { index: false }));
   app.use((req, res, next) => {
-    if (req.method !== 'GET' || req.path.startsWith('/api') || req.path.startsWith('/lti')) return next();
+    if (!isFrontendPath(req.method, req.path)) return next();
     res.sendFile(join(publicDir, 'index.html'));
   });
 } else {
   app.use((req, res, next) => {
-    if (req.method !== 'GET' || req.path.startsWith('/api') || req.path.startsWith('/lti')) return next();
+    if (!isFrontendPath(req.method, req.path)) return next();
     res
       .status(503)
       .type('html')
